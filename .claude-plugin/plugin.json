@@ -1,0 +1,10 @@
+{
+  "name": "guided-review",
+  "version": "1.0.0",
+  "description": "Turn a pull request into a guided, narrated code review: a self-contained HTML page where the PR is told as a story, each paragraph paired with the exact diff lines it explains.",
+  "author": { "name": "Marcelo Cajueiro" },
+  "homepage": "https://cajueiro.tech",
+  "repository": "https://github.com/MarceloCajueiro/guided-review",
+  "license": "MIT",
+  "keywords": ["code-review", "pull-request", "github", "storytelling", "developer-experience", "documentation"]
+}
