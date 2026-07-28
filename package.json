@@ -1,0 +1,13 @@
+{
+  "name": "guided-review",
+  "version": "1.0.0",
+  "description": "Turn a pull request into a guided, narrated code review.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
