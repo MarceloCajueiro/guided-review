@@ -76,10 +76,11 @@ would be arguing against itself.
 
 This tool reviewing the pull request that adds this tool:
 
-**→ [the raw PR on GitHub](https://github.com/MarceloCajueiro/guided-review/pull/1)**
+### **→ [Read the guided review](https://guided-review-example.pages.dev/)**
 
-Open it and look at the file list: `.claude-plugin/plugin.json`, `.gitignore`, `LICENSE` — three
-files carrying no idea at all, before anything that matters. Then look at the guided version:
+Then open [the same PR on GitHub](https://github.com/MarceloCajueiro/guided-review/pull/1) and
+compare. The GitHub tab starts at `.claude-plugin/plugin.json`, `.gitignore`, `LICENSE` — three
+files carrying no idea at all. The guided one starts at the idea everything else is built on.
 
 ![The opening: six chapters ordered by what you need to understand first](docs/opening-light.jpg)
 
