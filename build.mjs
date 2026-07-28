@@ -25,7 +25,7 @@ Arguments:
   <diff-file>    Unified diff, e.g. \`gh pr diff <N> > pr.diff\`.
 
 Options:
-  --out <file>   Output HTML (default: guided-review-<pr>.html next to the diff).
+  --out <file>   Output HTML (default: guided-review-<pr>.html in the current directory).
   --lang <code>  UI language for fixed labels: \`en\` (default) or \`pt\`.
                  Only chrome — the narrative renders in whatever language it was written in.
   --help         Show this help.
@@ -55,16 +55,41 @@ function parseArgs(argv) {
   return { positional, opts };
 }
 
+const NOTE_KINDS = new Set(['why', 'tradeoff', 'rejected']);
+
 // Validate the story up front. A malformed field here would otherwise surface
 // as a silently empty chapter in the output, which is worse than an error.
+//
+// Problems abort the run; warnings print and rendering continues. The split is
+// deliberate: a wrong anchor still produces a usable page, a wrong structure
+// does not. Every problem is collected before exiting so an author fixing a
+// story sees the whole list, not one error per run.
+//
+// Returns the paths no beat anchored.
 function validate(story, files) {
-  const paths = new Set(files.map((f) => f.path));
+  const byPath = new Map(files.map((f) => [f.path, f]));
   const problems = [];
   const warnings = [];
+  // Valid new-side line numbers, computed once per file rather than per anchor.
+  const validLines = new Map();
+  const linesOf = (path) => {
+    if (!validLines.has(path)) {
+      const set = new Set();
+      for (const h of byPath.get(path).hunks) {
+        for (const l of h.lines) if (l.newNo != null) set.add(l.newNo);
+      }
+      validLines.set(path, set);
+    }
+    return validLines.get(path);
+  };
 
-  if (!story || typeof story !== 'object') fail('story JSON must be an object');
   for (const k of ['number', 'title', 'chapters']) {
     if (story[k] === undefined) problems.push(`missing required field: ${k}`);
+  }
+  // `number` becomes part of the default output filename, so a value carrying a
+  // path separator would write somewhere the user did not ask for.
+  if (story.number !== undefined && !Number.isInteger(story.number)) {
+    problems.push(`number must be an integer, got ${JSON.stringify(story.number)}`);
   }
   if (!Array.isArray(story.chapters) || story.chapters.length === 0) {
     problems.push('chapters must be a non-empty array');
@@ -81,31 +106,51 @@ function validate(story, files) {
     ch.beats.forEach((b, bi) => {
       const w = `${where}.beats[${bi}]`;
       if (!b.text) problems.push(`${w}: missing text`);
+      // An unrecognized kind used to fall back to "why", relabelling the
+      // author's trade-off as a justification — inventing intent is worse than
+      // refusing to render.
+      for (const n of b.notes || []) {
+        if (n && n.kind !== undefined && !NOTE_KINDS.has(n.kind)) {
+          problems.push(`${w}: note kind "${n.kind}" — expected why, tradeoff or rejected`);
+        }
+      }
       for (const spec of b.files || []) {
-        const { path, from, to } = parseRange(spec);
-        if (!paths.has(path)) {
+        const { path, from, to, malformed } = parseRange(spec);
+        if (malformed && !byPath.has(path)) {
+          problems.push(`${w}: anchor "${spec}" — malformed range (expected path:N or path:N-M)`);
+          continue;
+        }
+        if (!byPath.has(path)) {
           problems.push(`${w}: anchor "${spec}" — no such file in the diff`);
           continue;
         }
         covered.add(path);
-        if (from != null) {
-          const file = files.find((f) => f.path === path);
-          const valid = new Set();
-          for (const h of file.hunks) for (const l of h.lines) if (l.newNo != null) valid.add(l.newNo);
-          // Anchors point at NEW-side lines. A range that hits nothing means the
-          // model guessed line numbers instead of reading them off the diff —
-          // the highlight would silently render nothing.
-          let hit = 0;
-          for (let n = from; n <= to; n++) if (valid.has(n)) hit++;
-          if (hit === 0 && valid.size > 0) {
-            warnings.push(`${w}: anchor "${spec}" matches no line in the new file`);
-          }
+        if (from == null) continue;
+        // Both are authoring mistakes with no valid reading, and both would
+        // otherwise make every `for (n = from; n <= to)` loop run zero times —
+        // an empty highlight that never trips the "matches no line" warning.
+        if (from < 1) {
+          problems.push(`${w}: anchor "${spec}" — line numbers start at 1`);
+          continue;
+        }
+        if (to < from) {
+          problems.push(`${w}: anchor "${spec}" — range runs backwards`);
+          continue;
+        }
+        // Anchors point at NEW-side lines. A range that hits nothing means the
+        // model guessed line numbers instead of reading them off the diff —
+        // the highlight would silently render nothing.
+        const valid = linesOf(path);
+        let hit = 0;
+        for (let n = from; n <= to; n++) if (valid.has(n)) hit++;
+        if (hit === 0 && valid.size > 0) {
+          warnings.push(`${w}: anchor "${spec}" matches no line in the new file`);
         }
       }
     });
   });
 
-  const uncovered = [...paths].filter((p) => !covered.has(p));
+  const uncovered = [...byPath.keys()].filter((p) => !covered.has(p));
   if (problems.length) {
     console.error('story validation failed:');
     for (const p of problems) console.error(`  - ${p}`);
@@ -118,6 +163,10 @@ function validate(story, files) {
 const { positional, opts } = parseArgs(process.argv.slice(2));
 if (positional.length < 2) { console.error(USAGE); process.exit(1); }
 
+// Flags are checked before any I/O: a typo should fail immediately, not after
+// parsing a 3,000-line diff.
+if (opts.lang !== 'en' && opts.lang !== 'pt') fail(`--lang must be "en" or "pt", got "${opts.lang}"`);
+
 const [storyPath, diffPath] = positional;
 if (!existsSync(storyPath)) fail(`story file not found: ${storyPath}`);
 if (!existsSync(diffPath)) fail(`diff file not found: ${diffPath}`);
@@ -128,18 +177,33 @@ try {
 } catch (e) {
   fail(`story JSON is not valid JSON: ${e.message}`);
 }
+// Guarded here rather than inside validate(), which collects problems and
+// reports them together — an early exit from inside that collector reports one
+// error where every other malformed story reports all of them.
+if (!story || typeof story !== 'object' || Array.isArray(story)) {
+  fail('story JSON must be an object');
+}
 
-const rawDiff = readFileSync(diffPath, 'utf8');
+let rawDiff;
+try {
+  rawDiff = readFileSync(diffPath, 'utf8');
+} catch (e) {
+  fail(`cannot read ${diffPath}: ${e.message}`);
+}
 const files = parseDiff(rawDiff);
 if (files.length === 0) fail(`no files parsed from ${diffPath} — is it a unified diff?`);
-
-if (opts.lang !== 'en' && opts.lang !== 'pt') fail(`--lang must be "en" or "pt", got "${opts.lang}"`);
 
 const { uncovered } = validate(story, files);
 
 const html = render(story, files, { lang: opts.lang });
 const out = opts.out || `guided-review-${story.number}.html`;
-writeFileSync(out, html);
+try {
+  writeFileSync(out, html);
+} catch (e) {
+  // The skill drives this from a mktemp directory; when that is gone the raw
+  // ENOENT stack trace is the least useful thing to hand back.
+  fail(`cannot write ${out}: ${e.message}`);
+}
 
 const beats = story.chapters.reduce((n, c) => n + (c.beats || []).length, 0);
 console.log(`✓ ${out}`);
