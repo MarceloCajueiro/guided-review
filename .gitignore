@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+.env
+# generated review pages and their working files
+guided-review-*.html
+*.diff
+story*.json
