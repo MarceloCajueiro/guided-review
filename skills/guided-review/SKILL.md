@@ -1,7 +1,7 @@
 ---
 name: guided-review
 description: Turn a pull request into a guided, narrated code review — a self-contained HTML page where the PR is told as a story in the order the decisions were made, each paragraph paired with the exact lines of the diff it explains. Use when the user wants to make a PR easier to review, says "guided review", "narrate this PR", "explain this PR", asks for a walkthrough or reading order for a large PR, or wants reviewers to understand *why* a change was made rather than just what changed. Replaces reading a long PR description separately from a file list sorted alphabetically.
-argument-hint: "[PR-number or URL] (default: PR of the current branch)"
+argument-hint: "[PR-number or URL] [--style objective|narrative|\"...\"] (default: current branch, objective)"
 user_invocable: true
 ---
 
@@ -38,7 +38,11 @@ The script lives at the plugin root. Reference it with `${CLAUDE_PLUGIN_ROOT}`.
 
 ### 1. Resolve the PR and pull the material
 
-`$ARGUMENTS` is a PR number or URL. If empty, resolve from the current branch:
+`$ARGUMENTS` is a PR number or URL, optionally followed by `--style <preset or description>`
+(see step 4b; default `objective`). The user may also ask for a style in their own words —
+"mais objetivo", "com mais prosa" — which counts the same as passing it.
+
+If no PR is given, resolve from the current branch:
 
 ```bash
 gh pr view --json number -q .number
@@ -100,14 +104,14 @@ nameable as a decision or a movement, never as a directory (`"Services"` is not 
   "deletions": 7,
   "headSha": "abc123…",          // headRefOid — stamps the page
   "headline": "…",               // the one sentence that makes someone want to read
-  "lede": "…",                   // 2–3 paragraphs: the problem, and how to read the page
+  "lede": "…",                   // the problem, and how to read the page (length: see style)
   "chapters": [
     {
       "title": "…",
       "summary": "…",            // one line under the chapter title (optional)
       "beats": [
         {
-          "text": "…",           // 1–2 paragraphs. `code`, **bold**, _italic_ work.
+          "text": "…",           // `code`, **bold**, *italic* / _italic_ work. Length: see style.
           "files": ["app/services/thing.rb:17-42", "app/views/_bar.html.erb"],
           "notes": [
             { "kind": "why",      "text": "…" },
@@ -139,14 +143,57 @@ nameable as a decision or a movement, never as a directory (`"Services"` is not 
 Use them where they earn their place. A note on every beat is noise; a PR with real
 engineering in it usually has three to six across the whole document.
 
-**On writing the prose:** write for a colleague who knows the codebase but not this change.
-Say what the code does only when it isn't obvious from reading it — the code is right there.
-Spend the words on what the code cannot show: what was true before, what would have gone
-wrong, what else was on the table. Prefer the concrete ("~21s on the largest municipality")
-over the vague ("performance concerns").
+**On writing the prose.** These hold in every style:
+
+- Write for a colleague who knows the codebase but not this change.
+- Say what the code does only when it isn't obvious from reading it — the code is right there.
+  Spend the words on what the code cannot show: what was true before, what would have gone
+  wrong, what else was on the table.
+- Prefer the concrete ("~21s on the largest municipality") over the vague ("performance
+  concerns").
+- Never invent reasoning. If the *why* isn't in the diff, the comments, or the PR description,
+  say what changed and leave the motive out — a plausible motive the author never held is the
+  one error this document cannot survive.
+
+How much prose, and in what voice, is the **style** — see below. Length and tone are the
+style's business; the four rules above are not.
 
 Write the narrative in **the language the PR is written in**. A PR whose description and code
 comments are in Portuguese gets a Portuguese narrative.
+
+### 4b. Apply the requested style
+
+`$ARGUMENTS` may carry a style after the PR reference: `--style objective`, `--style narrative`,
+or `--style "<anything the user describes>"`. Default to **objective** when nothing is given.
+
+Apply it to `lede`, `summary` and every beat `text`. It does not change which chapters exist,
+which anchors you pick, or the honesty rules above — only how the prose reads.
+
+**`objective`** — the default. Short. Facts and consequences, no scene-setting.
+
+> `parseDiff` tracked only the new-side line number, so anchors into deleted code resolved to
+> `null` and silently highlighted nothing. It now tracks both sides. The hunk header's own
+> counts are the test oracle.
+
+Aim for 1–3 sentences per beat. Drop a sentence that carries no fact. No metaphors, no
+rhetorical questions, no "let's".
+
+**`narrative`** — the fuller voice. Same facts, room to explain the reasoning and connect a
+beat to the one before it.
+
+> Before this change, `parseDiff` tracked only the new-side line number. That was fine while
+> anchors pointed at added code, which is where a review usually looks — but an anchor into a
+> deleted passage resolved to `null` and highlighted nothing at all, with no error. The page
+> looked complete. Tracking both sides costs one counter and closes that hole; the hunk
+> header's declared counts make a good oracle, since git computes them independently.
+
+Aim for 2–5 sentences per beat. Still no filler — the extra room is for reasoning, not
+adjectives.
+
+**custom** — anything else the user passes is the instruction. Follow it as written, including
+when it contradicts the two presets on length or tone (`--style "bullet points, max 15 words
+each"`, `--style "explain like I'm new to the codebase"`, `--style "seco, sem metáforas"`).
+The four rules above still apply; everything else the user's wording decides.
 
 ### 5. Build
 
@@ -188,9 +235,13 @@ private.
 - **J / K** (or ← / →) move between chapters; **E** expands or collapses every file.
 - The left rail tracks the current chapter; the hairline at the top is reading progress.
 - Light and dark follow the OS, with a toggle that overrides and persists.
-- Panels anchored to line ranges show that passage plus context, with a link to the full file
-  on GitHub. Generated files (`structure.sql`, lockfiles, `dist/`, `vendor/`) are detected and
-  collapsed.
+- A legend under the lede names the diff colours — green added, red removed, and amber for the
+  lines the paragraph beside them is about.
+- Panels anchored to line ranges show that passage plus context. Any panel hiding something —
+  a focused anchor, a generated file, a large un-anchored one — carries a **⛶** button and a
+  "view the whole file" link that open the complete diff over the page; **Esc** closes it and
+  returns you where you were. Generated files (`structure.sql`, lockfiles, `dist/`, `vendor/`)
+  are detected and collapsed.
 
 ## Fixed decisions of this skill (unless the user asks otherwise)
 
