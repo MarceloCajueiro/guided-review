@@ -57,6 +57,42 @@ function parseArgs(argv) {
 
 const NOTE_KINDS = new Set(['why', 'tradeoff', 'rejected']);
 
+// Emphasis markers the renderer leaves on the page verbatim because they never
+// closed. A warning, not a problem: the page is still readable, it just shows
+// `*like this*` where the author meant emphasis. Worth catching because the
+// author sees it only by opening the page and reading the paragraph — the
+// failure this tool exists to prevent, applied to its own output.
+//
+// Code spans are stripped first: `**kwargs` inside backticks is a literal, and
+// prose about globs (`*.rb`) or multiplication is ordinary. What survives is an
+// asterisk or underscore that looked like it was opening emphasis and never
+// found its partner.
+function danglingMarkers(text) {
+  const bare = String(text ?? '').replace(/`[^`]*`/g, '');
+  const found = new Set();
+  // These three must stay identical to the passes in render.mjs `inline()`.
+  // When they drifted, prose the renderer handled correctly still looked
+  // unclosed here: `/* bloco */` and `char *p` each drew a warning for emphasis
+  // that was never intended and never rendered. A warning on correct input is
+  // worse than none — it teaches the author to ignore the next one.
+  const stripped = bare
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|\s)\*([^\s*][^*\n]*[^\s*]|[^\s*])\*(?![\w*])/g, '$1$2')
+    .replace(/(^|\s)_([^_]+)_(?=\s|$|[.,;:!?])/g, '$1$2');
+  // A leftover marker is only worth reporting where emphasis could have opened:
+  // whitespace before, a word character after. That excludes the asterisk in
+  // `*.rb` or `a * b`, which no reader would take for emphasis.
+  //
+  // `char *p` still trips this, and deliberately so: it is indistinguishable
+  // from a genuinely unclosed `*word` without parsing the prose. The warning is
+  // the cheap direction to be wrong in — a false positive costs one glance and
+  // a backtick, a miss ships markers onto the page. Wrap pointers in `code` and
+  // the check goes quiet, which is how they should be written anyway.
+  if (/(^|\s)\*(?=\w)/.test(stripped)) found.add('*');
+  if (/(^|\s)_(?=\w)/.test(stripped)) found.add('_');
+  return [...found];
+}
+
 // Validate the story up front. A malformed field here would otherwise surface
 // as a silently empty chapter in the output, which is worse than an error.
 //
@@ -106,12 +142,18 @@ function validate(story, files) {
     ch.beats.forEach((b, bi) => {
       const w = `${where}.beats[${bi}]`;
       if (!b.text) problems.push(`${w}: missing text`);
+      for (const m of danglingMarkers(b.text)) {
+        warnings.push(`${w}: unclosed "${m}" in text — renders literally, not as emphasis`);
+      }
       // An unrecognized kind used to fall back to "why", relabelling the
       // author's trade-off as a justification — inventing intent is worse than
       // refusing to render.
       for (const n of b.notes || []) {
         if (n && n.kind !== undefined && !NOTE_KINDS.has(n.kind)) {
           problems.push(`${w}: note kind "${n.kind}" — expected why, tradeoff or rejected`);
+        }
+        for (const m of danglingMarkers(n && n.text)) {
+          warnings.push(`${w}: unclosed "${m}" in note — renders literally, not as emphasis`);
         }
       }
       for (const spec of b.files || []) {
