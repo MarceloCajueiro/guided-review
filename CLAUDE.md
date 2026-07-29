@@ -38,6 +38,12 @@ page. A tool arguing that reviewers should not skim cannot hide code from them. 
 the focus logic, the accounting test in `test/render.test.mjs` is the one that matters:
 shown + skipped must equal the file.
 
+Any panel that hides something also carries a `<template class="full-src">` — the same file
+uncut — which the ⛶ button opens over the page. Two consequences: the accounting test must
+count only what is *outside* the template (its `visible()` helper strips it, and without that
+every focused file looks like it rendered whole), and button and template ship as a pair. A
+button whose template is missing is a control that silently does nothing.
+
 **Line numbers are the contract.** A parser that miscounts does not crash; it produces a
 narrative anchored to the wrong code, which looks exactly as trustworthy as a correct one.
 `parseDiff` is tested against the hunk header's own declared counts — git's ground truth.
@@ -48,8 +54,14 @@ Silently reinterpreting an author's input invents intent they never expressed. W
 reserved for things that still leave a usable page (an anchor matching no line); problems abort.
 
 **Escaping runs before markup.** `inline()` escapes author text first, then applies `code`,
-`**bold**`, `_italic_`. Reversing that order is an injection. Code spans are lifted out before
-the emphasis passes because three independent regex sweeps cannot see each other's boundaries.
+`**bold**`, `*italic*`, `_italic_`. Reversing that order is an injection. Code spans are lifted
+out before the emphasis passes because independent regex sweeps cannot see each other's
+boundaries.
+
+The single-`*` pass runs after the `**` pass and requires a word character on both inner
+edges. Without that guard `glob *.rb and *.js` italicised the span between two unrelated
+globs — the pattern paired an opener and a closer that were never a pair. Prose about globs,
+pointers and multiplication is ordinary here; `test/render.test.mjs` pins all three.
 
 **`REST` is one constant.** `lib/theme.mjs` exports it; the stylesheet and the page script both
 interpolate it. When the scroll destination and the scrollspy threshold drifted apart, `j`/`k`
@@ -68,9 +80,13 @@ oscillated between two chapters forever. Do not hard-code 76 anywhere.
 
 Do not "fix" these without discussing it first:
 
-- **The page script is a template string** in `lib/render.mjs`, so its ~110 lines are outside
+- **The page script is a template string** in `lib/render.mjs`, so its ~170 lines are outside
   the test suite. Extracting it to a separate file would make it testable at the cost of the
   self-contained, zero-build-step output — which is the point of the tool. Accepted trade-off.
+  The consequence is that the overlay's behaviour (Esc, backdrop click, focus return, `j`/`k`
+  suppression while open, scroll lock) has to be checked in a browser by hand. What the tests
+  *can* hold is the markup contract the script depends on: template present, no ids inside it,
+  button and template paired.
 - **Highlighting is regex, not a parser.** A diff shows fragments; any parser strict enough to
   be correct fails on most hunks. Regex degrades to a missed keyword, never a broken line.
 - **Generated-file detection matches paths**, so an unusual layout will occasionally be wrong.
