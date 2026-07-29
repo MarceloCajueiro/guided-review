@@ -195,6 +195,14 @@ explaining. Silence about a file is itself a claim; this makes the narrator prov
 Pointed at a real 27-file PR, that check caught five skipped files on the first run. Pointed at
 this project's own PR, it caught the README.
 
+```
+warning: chapters[1].beats[0]: unclosed "*" in text — renders literally, not as emphasis
+```
+
+An emphasis marker that never closed reaches the page as `*this*`. Harmless to the code, but
+the author only ever finds it by opening the page and reading the paragraph — which is the
+failure this tool exists to prevent, applied to its own output.
+
 Ranges that cannot mean anything — running backwards, starting below line 1 — are rejected
 outright rather than warned about, because every one of them produces an empty highlight that
 looks exactly like a correct one.
@@ -206,7 +214,11 @@ looks exactly like a correct one.
 - **J / K** (or ← / →) move between chapters; **E** expands or collapses every file
 - The left rail tracks where you are; the hairline at the top is reading progress
 - Light and dark follow the OS, with a toggle that overrides and persists
+- A legend under the lede names the diff colours: green added, red removed, amber for the lines
+  the paragraph beside them explains
 - Line-anchored panels show that passage plus context, and **always say how much they skipped**
+- Any panel that hides something carries a **⛶** button opening the whole file over the page —
+  **Esc** returns you exactly where you were, so reading the rest never costs you the narrative
 - Generated files (`structure.sql`, lockfiles, `dist/`, `vendor/`) are detected and collapsed
 
 ---
