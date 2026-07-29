@@ -5,3 +5,5 @@ node_modules/
 guided-review-*.html
 *.diff
 story*.json
+# wrangler leaves this behind when deploying the example page
+.wrangler/
